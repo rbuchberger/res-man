@@ -1,45 +1,50 @@
 #! /bin/sh
+# shellcheck disable=1090
+# Restic Manager
+# Robert Buchberger <robert@buchberger.cc>
+#                   @robert@spacey.space
+
 set -eu
 IFS="
 
 "
 
-# Restic Manager
-# Robert Buchberger <robert@buchberger.cc>
-#
-# ENV:
-# - RESTIC_CONFIG_DIR: location of config files. Defaults to /etc/restic
-# Config files (found in config dir):
-# - include: files to include
-# - exclude: files to exclude
-# - env: Sourced before running all commands.
-#   - https://restic.readthedocs.io/en/stable/040_backup.html#environment-variables
-#   - Format: export VAR=value
-#   - Recommended to chmod 600
-#   - Suggested settings:
-#     - RESTIC_REPOSITORY
-#     - RESTIC_PASSWORD
-#     - Backend credentials
+prepare() {
+	[ -f "$PREPARE_SCRIPT" ] || return 0
 
-EXIT_STATUS=0
-CONFIG_DIR="${RESTIC_CONFIG_DIR:-/etc/restic}"
+	"$PREPARE_SCRIPT" "$JOB_NAME" || error "Prepare script failed"
+}
+
+success() {
+	[ -f "$ON_SUCCESS" ] || return 0
+
+	"$ON_SUCCESS" "$JOB_NAME" || error "Success script failed"
+}
 
 error() {
-	echo "$1"
 	EXIT_STATUS=1
+	echo "$1" >&2
+	[ -f "$ON_ERROR" ] || return 0
+
+	"$ON_ERROR" "$JOB_NAME" "$1" || echo "Error script failed" >&2
 }
 
 backup() {
+	[ -f "$CONFIG_DIR/${INCLUDE_FILE:-"include"}" ] ||
+		(error "Include file not found" && exit 1)
+
 	restic backup \
 		--verbose \
 		--exclude-caches \
 		--one-file-system \
-		--files-from "$CONFIG_DIR/$INCLUDE_FILE" \
-		--exclude-file "$CONFIG_DIR/$EXCLUDE_FILE"
+		--files-from "$CONFIG_DIR/${INCLUDE_FILE:-"include"}" \
+		--exclude-file "$CONFIG_DIR/${EXCLUDE_FILE:-"exclude"}" ||
+		error "Backup error"
 }
 
 check() {
-	restic check --read-data-subset "${CHECK_SUBSET:-2}"% --verbose
+	restic check --verbose --read-data-subset "${CHECK_SUBSET:-"2%"}" ||
+		error "Check error"
 }
 
 forget() {
@@ -48,61 +53,73 @@ forget() {
 		--keep-last "${KEEP_LAST:-7}" \
 		--keep-daily "${KEEP_DAILY:-7}" \
 		--keep-weekly "${KEEP_WEEKLY:-4}" \
-		--keep-monthly "${KEEP_MONTHLY:-4}"
+		--keep-monthly "${KEEP_MONTHLY:-4}" ||
+		error "Forget error"
 }
 
 prune() {
-	restic prune --verbose
+	restic prune --verbose || error "Prune error"
 }
 
 # Mondays
 should_check() {
-	[ "$(date +%u)" = 1 ]
+	[ "$(date +%u)" = "${CHECK_DAY:-1}" ]
 }
 
-# Monday, every 4 weeks
-# Won't behave correctly when wrapping over a year but whatever
 should_prune() {
-	week_of_year=$(date +%W)
-	# Ignore the following shellcheck error, it breaks the script on alpine
-	week_in_sequence=$(($week_of_year % 4))
+	# We only prune on check days
+	should_check || return 1
 
-	should_check && [ "$week_in_sequence" = 0 ]
+	week_of_year=$(date +%W)
+	# shellcheck disable=2004
+	week_in_sequence=$(($week_of_year % ${PRUNE_WEEKS:-4}))
+
+	[ "$week_in_sequence" = 0 ] || return 1
+
+	[ "$EXIT_STATUS" = 0 ] || (
+		echo "It's forget & prune day, but we're skipping it due to a previous error."
+		return 1
+	)
 }
 
 daily() {
-	echo "Starting auto-backup"
+	prepare
+	backup
 
-	backup || error "Backup error"
+	if should_prune; then
+		forget || echo "Skipping prune due to forget error" >&2
+		# Only prune if forget also succeeded
+		[ "$EXIT_STATUS" = 0 ] && prune
+	fi
 
-	should_prune && (forget && prune || error "Prune error") || echo "Prune skipped"
+	should_check && (check || error "Check error")
 
-	should_check && (check || error "Check error") || echo "Check skipped"
-
-	echo "Daily jobs complete"
+	if [ "$EXIT_STATUS" = 0 ]; then
+		success
+		echo "Daily job complete"
+	else
+		echo "Daily job finished with errors."
+	fi
 }
 
 help() {
-	echo "Usage: $0 <settings file> {backup|check|forget|prune|daily}"
-	echo "Settings file should be located in $CONFIG_DIR"
-	echo "Settings file should export the following variables:"
-	echo "  - repository and backend credentials (check restic docs)"
-	echo "  - RESTIC_REPOSITORY: destination repository"
-	echo "  - INCLUDE_FILE: name of file containing files to backup (relative to $CONFIG_DIR)"
-	echo "  - EXCLUDE_FILE: name of file containing files to exclude (relative to $CONFIG_DIR)"
-	echo "  - CHECK_SUBSET: percentage of data to check (default: 2)"
-	echo "  - KEEP_LAST: number of last backups to keep (default: 7)"
-	echo "  - KEEP_DAILY: number of daily backups to keep (default: 7)"
-	echo "  - KEEP_WEEKLY: number of weekly backups to keep (default: 4)"
-	echo "  - KEEP_MONTHLY: number of monthly backups to keep (default: 4)"
-	echo " Note: If you need to work with your backups, you can source the relevant env file directly"
+	echo "Usage: $0 <JOB_NAME> {daily|backup|check|forget|prune}"
+	echo "JOB_NAME should be a file located in $CONFIG_DIR which exports all required environment variables"
 
 	exit 1
 }
 
-[ "${1:-}" = "" ] && help
+# Setup ------------------------------------------------------------------------
+EXIT_STATUS=0
+CONFIG_DIR="${RESTIC_CONFIG_DIR:-/etc/restic}"
+ON_ERROR=$CONFIG_DIR/${ON_ERROR:-on_error.sh}
+ON_SUCCESS=$CONFIG_DIR/${ON_SUCCESS:-on_success.sh}
+PREPARE_SCRIPT=$CONFIG_DIR/${PREPARE_SCRIPT:-prepare.sh}
+JOB_NAME="${1:-}"
+[ "$JOB_NAME" = "" ] && help
+JOB_FILE=$CONFIG_DIR/$JOB_NAME
 
-. "$CONFIG_DIR"/"$1"
+. "$JOB_FILE" || (error "Job definition $JOB_FILE not found" && help)
 
 case $2 in
 backup)
