@@ -1,0 +1,128 @@
+#! /bin/sh
+set -eu
+IFS="
+
+"
+
+# Restic Manager
+# Robert Buchberger <robert@buchberger.cc>
+#
+# ENV:
+# - RESTIC_CONFIG_DIR: location of config files. Defaults to /etc/restic
+# Config files (found in config dir):
+# - include: files to include
+# - exclude: files to exclude
+# - env: Sourced before running all commands.
+#   - https://restic.readthedocs.io/en/stable/040_backup.html#environment-variables
+#   - Format: export VAR=value
+#   - Recommended to chmod 600
+#   - Suggested settings:
+#     - RESTIC_REPOSITORY
+#     - RESTIC_PASSWORD
+#     - Backend credentials
+
+EXIT_STATUS=0
+CONFIG_DIR="${RESTIC_CONFIG_DIR:-/etc/restic}"
+
+error() {
+	echo "$1"
+	EXIT_STATUS=1
+}
+
+backup() {
+	restic backup \
+		--verbose \
+		--exclude-caches \
+		--one-file-system \
+		--files-from "$CONFIG_DIR/$INCLUDE_FILE" \
+		--exclude-file "$CONFIG_DIR/$EXCLUDE_FILE"
+}
+
+check() {
+	restic check --read-data-subset "${CHECK_SUBSET:-2}"% --verbose
+}
+
+forget() {
+	restic forget \
+		--verbose \
+		--keep-last "${KEEP_LAST:-7}" \
+		--keep-daily "${KEEP_DAILY:-7}" \
+		--keep-weekly "${KEEP_WEEKLY:-4}" \
+		--keep-monthly "${KEEP_MONTHLY:-4}"
+}
+
+prune() {
+	restic prune --verbose
+}
+
+# Mondays
+should_check() {
+	[ "$(date +%u)" = 1 ]
+}
+
+# Monday, every 4 weeks
+# Won't behave correctly when wrapping over a year but whatever
+should_prune() {
+	week_of_year=$(date +%W)
+	# Ignore the following shellcheck error, it breaks the script on alpine
+	week_in_sequence=$(($week_of_year % 4))
+
+	should_check && [ "$week_in_sequence" = 0 ]
+}
+
+daily() {
+	echo "Starting auto-backup"
+
+	backup || error "Backup error"
+
+	should_prune && (forget && prune || error "Prune error") || echo "Prune skipped"
+
+	should_check && (check || error "Check error") || echo "Check skipped"
+
+	echo "Daily jobs complete"
+}
+
+help() {
+	echo "Usage: $0 <settings file> {backup|check|forget|prune|daily}"
+	echo "Settings file should be located in $CONFIG_DIR"
+	echo "Settings file should export the following variables:"
+	echo "  - repository and backend credentials (check restic docs)"
+	echo "  - RESTIC_REPOSITORY: destination repository"
+	echo "  - INCLUDE_FILE: name of file containing files to backup (relative to $CONFIG_DIR)"
+	echo "  - EXCLUDE_FILE: name of file containing files to exclude (relative to $CONFIG_DIR)"
+	echo "  - CHECK_SUBSET: percentage of data to check (default: 2)"
+	echo "  - KEEP_LAST: number of last backups to keep (default: 7)"
+	echo "  - KEEP_DAILY: number of daily backups to keep (default: 7)"
+	echo "  - KEEP_WEEKLY: number of weekly backups to keep (default: 4)"
+	echo "  - KEEP_MONTHLY: number of monthly backups to keep (default: 4)"
+	echo " Note: If you need to work with your backups, you can source the relevant env file directly"
+
+	exit 1
+}
+
+[ "${1:-}" = "" ] && help
+
+. "$CONFIG_DIR"/"$1"
+
+case $2 in
+backup)
+	backup
+	;;
+check)
+	check
+	;;
+forget)
+	forget
+	;;
+prune)
+	prune
+	;;
+daily)
+	daily
+	;;
+*)
+	help
+	;;
+esac
+
+exit "$EXIT_STATUS"
