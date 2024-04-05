@@ -22,7 +22,7 @@
   - Still runs check if something else fails
   - Doesn't try to prune or forget if anything has failed
   - Exits with non-zero status if anything has failed
-- Configurable prepare, on-error, and on-success hooks for things like notifications & database dumps.
+- Configurable prepare, on-error, on-success, and on-exit hooks for things like notifications & database dumps.
 - Job configs can be also sourced to run restic commands directly against the configured repo.
 
 ## Installation
@@ -164,6 +164,7 @@ Global:
 - `PREPARE_SCRIPT` - Optional executable to run before the backup. Default: `prepare.sh`. Passed jobname as an argument.
 - `ON_ERROR` - Optional executable to run when errors occur. Default: `on-error.sh`. Passed jobname & error message as arguments.
 - `ON_SUCCESS` - Optional executable to run after a successful backup. Default: `on-success.sh`. Passed jobname as an argument.
+- `ON_EXIT` - Optional executable to run after all backups. Default: `on-exit.sh`. Passed jobname as an argument.
 - `KEEP_{LAST,DAILY,WEEKLY,MONTHLY}` - Arguments to `restic forget --keep-*`. Default: `7 7 4 12`
 - `CHECK_DAY` - Numerical Day of the week to run checks. Default: `1` (Monday)
 - `PRUNE_WEEKS` - Forget & Prune every x weeks on check day. Default: `4`.
