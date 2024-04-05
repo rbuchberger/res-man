@@ -100,6 +100,10 @@ export RESTIC_REPOSITORY="sftp:user@host:/path/to/repo"
 export RESTIC_PASSWORD="secret_password"
 
 export CHECK_DAY=2 # Check on tuesday instead
+
+# Use custom variables for hooks
+export HC_PING_URL="https://hc-ping.com/your-uuid-here"
+export NTFY_URL="https://ntfy.sh/mychannel"
 ```
 
 ### `/etc/restic/include`
@@ -125,7 +129,7 @@ Don't forget to `chmod +x`
 
 ```sh
 #!/bin/sh
-curl -fsS -m 10 --retry 5 -o /dev/null https://hc-ping.com/your-uuid-here/start &
+curl -fsS -m 10 --retry 5 -o /dev/null "$HC_PING_URL"/start &
 pacman -Qe >/root/pacman_packages
 aur repo -l >/root/aur_repo_packages
 ```
@@ -136,8 +140,8 @@ Don't forget to `chmod +x`
 
 ```sh
 #!/bin/sh
-curl -fsS -m 10 --retry 5 -o /dev/null https://hc-ping.com/your-uuid-here/fail &
-curl -fsS -m 10 --retry 5 -o /dev/null -d "Restic backup job $1 error: $2" ntfy.sh/mychannel &
+curl -fsS -m 10 --retry 5 -o /dev/null  "$HC_PING_URL"/fail &
+curl -fsS -m 10 --retry 5 -o /dev/null -d "Restic backup job $1 error: $2" "$NTFY_URL" &
 ```
 
 ### `/etc/restic/on-success.sh`
@@ -146,8 +150,8 @@ Don't forget to `chmod +x`
 
 ```sh
 #!/bin/sh
-curl -fsS -m 10 --retry 5 -o /dev/null https://hc-ping.com/your-uuid-here/success &
-curl -fsS -m 10 --retry 5 -o /dev/null -d "Restic backup job $1 complete" ntfy.sh/mychannel &
+curl -fsS -m 10 --retry 5 -o /dev/null "$HC_PING_URL"/success &
+curl -fsS -m 10 --retry 5 -o /dev/null -d "Restic backup job $1 complete" -H "Priority: low" "$NTFY_URL" &
 ```
 
 ## Configuration reference
@@ -173,6 +177,12 @@ Global:
 ## Roadmap
 
 I made this for me; I'm sharing it because it might be useful to others. I don't plan to add features unless they're useful to me, but I'll accept PRs if they're reasonable.
+
+## Tips & Tricks
+
+- You can define your own variables in job configs and use them in the hook scripts, for example for different notification endpoints.
+- [HealthChecks](https://healthchecks.io) is a neat service for monitoring cron jobs (I have no affiliation)
+- [ntfy](https://ntfy.sh) is also pretty great. (Also no affiliation)
 
 ## License
 
