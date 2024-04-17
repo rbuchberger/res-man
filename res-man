@@ -136,7 +136,7 @@ scaffold() {
 }
 
 help() {
-	echo "Usage: $0 <JOB_NAME> {daily|backup|check|forget|prune}"
+	echo "Usage: $0 <JOB_NAME> {daily|backup|check|forget|prune|scaffold|restic}"
 	echo "JOB_NAME should be a file located in $CONFIG_DIR which exports all required environment variables"
 
 	exit 1
