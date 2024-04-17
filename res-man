@@ -100,7 +100,7 @@ daily() {
 
 	should_check && (check || error "Check error")
 
-	if [ "$EXIT_STATUS" = 0 ]; then
+	if [ "$EXIT_STATUS" = "0" ]; then
 		success
 		echo "Daily job complete"
 	else
@@ -108,6 +108,31 @@ daily() {
 	fi
 
 	on_exit
+}
+
+scaffold() {
+	echo "Creating config template for job $JOB_NAME in $CONFIG_DIR"
+
+	if [ -f "$CONFIG_DIR/$JOB_NAME" ]; then
+		echo "Job $CONFIG_DIR/$JOB_NAME already exists, skipping"
+	else
+		install -Dm600 "$TEMPLATE_DIR"/myjob "$CONFIG_DIR/$JOB_NAME"
+		echo "Job $JOB_NAME created in $CONFIG_DIR"
+	fi
+
+	if [ -f "$CONFIG_DIR/include" ]; then
+		echo "Include file $CONFIG_DIR/include already exists, skipping"
+	else
+		install -Dm644 "$TEMPLATE_DIR"/include "$CONFIG_DIR/include"
+		echo "Include file created in $CONFIG_DIR; be sure to modify it as needed."
+	fi
+
+	if [ -f "$CONFIG_DIR/exclude" ]; then
+		echo "Exclude file $CONFIG_DIR/exclude already exists, skipping"
+	else
+		install -Dm644 "$TEMPLATE_DIR"/exclude "$CONFIG_DIR/exclude"
+		echo "Exclude file created in $CONFIG_DIR; be sure to modify it as needed."
+	fi
 }
 
 help() {
@@ -127,8 +152,9 @@ PREPARE_SCRIPT=$CONFIG_DIR/${PREPARE_SCRIPT:-prepare.sh}
 JOB_NAME="${1:-}"
 [ "$JOB_NAME" = "" ] && help
 JOB_FILE=$CONFIG_DIR/$JOB_NAME
+TEMPLATE_DIR=${RESTIC_TEMPLATE_DIR:-/usr/share/res-man}
 
-. "$JOB_FILE" || (error "Job definition $JOB_FILE not found" && help)
+[ "$2" = "scaffold" ] || . "$JOB_FILE" || (error "Job definition $JOB_FILE not found" && help)
 
 case $2 in
 backup)
@@ -145,6 +171,9 @@ prune)
 	;;
 daily)
 	daily
+	;;
+scaffold)
+	scaffold
 	;;
 *)
 	help
