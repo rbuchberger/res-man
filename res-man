@@ -175,6 +175,10 @@ daily)
 scaffold)
 	scaffold
 	;;
+restic)
+	shift 2
+	restic "$@"
+	;;
 *)
 	help
 	;;
